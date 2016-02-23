@@ -1,40 +1,42 @@
 window.addEventListener('load', function () {
 	var graph = new GraphWidget($('.someClass')[0]);
-    graph.setData({
-        nodes: [
-            {
-                x: -1500,
-                y: 900,
-                z: -300,
-                connections: [1, 4]
+    var data = {
+        nodes:[]
+    }
+    var size = 150
+    for(var i=0; i<size; i++) {
+        data.nodes.push({
+            data: {
+                weight:500
             },
-            {
-                x: 900,
-                y: -1500,
-                z: 600,
-                connections: [0, 2, 4]
-            },
-            {
-                x: 100,
-                y: -100,
-                z: -300,
-                connections: [1, 3]
-            },
-            {
-                x: 900,
-                y: 900,
-                z: 900,
-                connections: [2]
-            },
-            {
-                x: -900,
-                y: -900,
-                z: 900,
-                connections: [1, 0]
+            connections: []
+        });
+    }
+
+    for(var i=0; i<size; i++) { 
+        var node = data.nodes[i];
+        var conn =  node.connections;
+        var connAm = getRandomInt(0,2);
+        for(var j=conn.length; j <= connAm; j++) {
+            var neighb = getRandomInt(0,size-1);
+            var neighbNode = data.nodes[neighb];
+            while(neighb == i || node.connections.indexOf(neighb) != -1 || neighbNode.connections.length >= 3) {
+                neighb = getRandomInt(0,size-1);
+                neighbNode = data.nodes[neighb];
             }
-        ]
-    });
+            node.connections.push(neighb);
+            neighbNode.connections.push(i);
+
+        }
+    }
+    graph.setData(data);
 })
+
+function getRandomInt(min, max)
+{
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+
+}
 
 
 var mouse = new THREE.Vector2();
@@ -132,8 +134,21 @@ function GraphWidget(el) {
         processRawData();
     }
 
-    function lookAtNode() {
-        
+    function lookAtNode(node) {
+        var pos = node.getMesh().position;
+        camera.lookAt(pos);  
+        var cPos = camera.position;
+        var temp = cPos.clone();
+        var distance = temp.length();
+        temp.sub(pos);
+        temp.normalize();
+        var deltaD = 4000 - distance;
+        cPos.x = cPos.x + temp.x*deltaD;
+        cPos.y = cPos.y + temp.y*deltaD;
+        cPos.z = cPos.z + temp.z*deltaD;
+        temp = cPos.clone();
+        distance = temp.length();
+   
     }
 
     function onClick( event ) {
@@ -160,6 +175,7 @@ function GraphWidget(el) {
 
     function onItemClick(event) {
         var item = event.currentTarget;
+
         if(lastClicked) {
             lastClicked.getMesh().material.color.set( 0x0f0fff );
         }
@@ -167,6 +183,7 @@ function GraphWidget(el) {
         lastClicked = item.nodeObj;
         setItemActive(item);
         setItemData(item.nodeObj.getMesh().nodeData);
+        lookAtNode(item.nodeObj);
     }
 
     function setItemActive(item) {
@@ -187,7 +204,7 @@ function GraphWidget(el) {
 
         scene = new THREE.Scene();
 
-        camera = new THREE.PerspectiveCamera( 75, element.clientWidth / element.clientHeight, 1, 10000 );
+        camera = new THREE.PerspectiveCamera( 75, element.clientWidth / element.clientHeight, 1, 100000 );
         camera.position.z = 4000;
         camera.position.y = 1000;
 
@@ -204,15 +221,68 @@ function GraphWidget(el) {
     }
 
 
+    function definePositions(nodes) {
+        if(!nodes || nodes.length == 0)
+            return;
+        nodes[0].x = 0; nodes[0].y = 0; nodes[0].z = 0;
+        var side = 1000;
+        var setted = [0];
+        placeNeighbours(nodes, setted, 0);
+        for(var i = 1; i < nodes.length; i++) {
+            if(setted.indexOf(i) == -1) {
+                var node = nodes[i];
+                node.x = getRandomInt(-side, side);
+                node.y = getRandomInt(-side, side);
+                node.z = getRandomInt(-side, side);
+                placeNeighbours(nodes, setted, i);
+            }
+        }
+    }
 
+    function oldPositions(nodes) {
+        if(!nodes || nodes.length == 0)
+            return;
+        nodes[0].x = 0; nodes[0].y = 0; nodes[0].z = 0;
+        var side = 1000;
+        var setted = [0];
+        for(var i = 1; i < nodes.length; i++) {
+            var node = nodes[i];
+            node.x = getRandomInt(-side, side);
+            node.y = getRandomInt(-side, side);
+            node.z = getRandomInt(-side, side);
+        }
+    }
+
+    function placeNeighbours(nodes, setted, i) {
+        var node = nodes[i];
+        var side = 1000;
+        var temp = [];
+        for(var i = 0; i < node.connections.length; i++ ) {
+            var connI = node.connections[i];
+            if(setted.indexOf(connI) == -1) {
+                var neighNode = nodes[connI] 
+                setted.push(connI);
+                neighNode.x = node.x + getRandomInt(-side, side);
+                neighNode.y = node.y + getRandomInt(-side, side);
+                neighNode.z = node.z + getRandomInt(-side, side);
+                temp.push(connI);
+            }
+        }
+        for(var i = 0; i < temp.length; i++ ) {
+            placeNeighbours(nodes, setted, temp[i]);
+        }
+    }
+    var connNumber = 0;
     function processRawData() {
         if(!data)
             return;
         var nNodes = data.nodes;
+        definePositions(nNodes);
         $list = $(target).find('.GW-nodelist');
         for(key in nNodes) {
 
             var node = nNodes[key];
+            connNumber += node.connections.length;
             var ball = new Ball({x: node.x || 0, y: node.y || 0, z: node.z || 0}, 0x0f0fff);
             ball.getMesh().nodeData = node;
             ball.getMesh().mainObj = ball;
@@ -224,7 +294,35 @@ function GraphWidget(el) {
             item[0].nodeObj = ball;
             ball.getMesh().domElem = item[0];
             $(target).find('.GW-nodelist').append(item);
+        }
 
+        var isCalm = false;
+        while(!isCalm) {
+            isCalm = true;
+            var speeds = [];
+            for(var i = 0; i < nodes.length; i++) {
+                var ball1 = nodes[i].getMesh();
+                var connect = ball1.nodeData.connections;
+                var curSpeed = new THREE.Vector3(0, 0, 0);
+                for(var j = 0; j < nodes.length; j++) {
+                    var ball2 = nodes[j].getMesh();
+                    if(i != j) {
+                        var diff = ball1.position.clone().sub(ball2.position);
+                        localSpeed(diff, connect.indexOf(j) != -1);
+                        curSpeed.add(diff);
+                    }
+                }
+                
+                isCalm = recalcSpeed(curSpeed)
+                speeds[i] = curSpeed;
+            }
+
+            if(!isCalm) {
+                for(var i = 0; i < nodes.length; i++) {
+                    var ball = nodes[i].getMesh();
+                    ball.position.add(speeds[i]);
+                }
+            } 
         }
 
         for(key in nNodes) {
@@ -243,7 +341,47 @@ function GraphWidget(el) {
                 scene.add(conn.getMesh());
             }
         }
-        console.log(scene.children);
+        console.log(scene.children)
+    }
+
+    function recalcSpeed(speed) {
+        console.log('number', connNumber)
+        var scalSpeed = speed.length();
+        var maxVal = 20 * connNumber/nodes.length;
+        var maxSpeed = 500;
+        speed.normalize();
+        if(scalSpeed > maxVal)
+            maxVal = scalSpeed;
+        if(scalSpeed> 0.1*maxVal) {
+            scalSpeed = maxSpeed - maxSpeed*(1 - scalSpeed/maxVal);
+        } else
+            scalSpeed = 0;
+        speed.x *= scalSpeed;
+        speed.y *= scalSpeed;
+        speed.z *= scalSpeed;
+
+        return scalSpeed == 0 ? true : false;
+    }
+
+    function localSpeed(speed, connected) {
+        var scalSpeed = speed.length();
+        var speedUpD = connected ? 5000 : 15000,
+            calmTo = connected ? 10000 : 40000;
+        speed.normalize();
+        if(scalSpeed < speedUpD) {
+            scalSpeed = 10 - 10*(scalSpeed/speedUpD);
+        } else if(scalSpeed > speedUpD && scalSpeed < calmTo) {
+            scalSpeed = 0;
+        } else if(scalSpeed > calmTo) {
+            var temp = (scalSpeed - calmTo);
+            if(temp < 1) temp = 1;
+            scalSpeed = -(30 - 30*1/temp);
+        }
+        speed.x *= scalSpeed;
+        speed.y *= scalSpeed;
+        speed.z *= scalSpeed;
+
+        return scalSpeed == 0 ? true : false;
 
     }
 
